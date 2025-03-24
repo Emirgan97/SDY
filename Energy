@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>BOM Karşılaştırmalı Fiyatlandırma Aracı</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+    <h2>BOM Karşılaştırmalı Fiyatlandırma Aracı</h2>
+    <div>
+        <label>Benchmark Tablosunu Yükle:</label>
+        <input type="file" id="benchmarkUpload" accept=".xlsx">
+    </div>
+    <br>
+    <div>
+        <label>BOM Dosyasını Yükle:</label>
+        <input type="file" id="bomUpload" accept=".xlsx">
+    </div>
+    <br>
+    <button onclick="compareAndPrice()">Karşılaştır ve Fiyatlandır</button>
+
+    <script>
+        let benchmarkData = [];
+
+        function normalize(str) {
+            return str
+                ? str.toString().replace(/\s+/g, '').replace(/\u00a0/g, '').trim().toLowerCase()
+                : '';
+        }
+
+        function loadBenchmark(file, callback) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const workbook = XLSX.read(new Uint8Array(e.target.result), {type: 'array'});
+                const sheetName = workbook.SheetNames[0];
+                benchmarkData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
+                callback();
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function findPrice(material, size, pressureClass) {
+            const found = benchmarkData.find(item =>
+                normalize(item['Material']) === normalize(material) &&
+                normalize(item['Size - 1']) === normalize(size) &&
+                normalize(item['Pressure Class']) === normalize(pressureClass)
+            );
+            return found ? found['Unit Price'] : '-';
+        }
+
+        function compareAndPrice() {
+            const benchmarkFile = document.getElementById('benchmarkUpload').files[0];
+            const bomFile = document.getElementById('bomUpload').files[0];
+
+            if (!benchmarkFile || !bomFile) {
+                alert("Lütfen hem benchmark tablosunu hem de BOM dosyasını yükleyin.");
+                return;
+            }
+
+            loadBenchmark(benchmarkFile, () => {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const workbook = XLSX.read(new Uint8Array(e.target.result), {type: 'array'});
+                        const sheetName = workbook.SheetNames[0];
+                        const json = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
+
+                        json.forEach(row => {
+                            row['Unit Price'] = findPrice(
+                                row['Material'],
+                                row['Size - 1'],
+                                row['Pressure Class']
+                            );
+                        });
+
+                        const newSheet = XLSX.utils.json_to_sheet(json);
+                        const newWorkbook = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(newWorkbook, newSheet, 'Priced BOM');
+
+                        const output = XLSX.write(newWorkbook, { bookType: 'xlsx', type: 'binary' });
+                        const blob = new Blob([s2ab(output)], { type: "application/octet-stream" });
+                        const url = URL.createObjectURL(blob);
+
+                        const hiddenLink = document.createElement('a');
+                        hiddenLink.href = url;
+                        hiddenLink.download = 'BOM_Fiyatlandırılmış.xlsx';
+                        document.body.appendChild(hiddenLink);
+                        hiddenLink.click();
+                        document.body.removeChild(hiddenLink);
+                    } catch (err) {
+                        console.error(err);
+                        alert("Bir hata oluştu: " + err.message);
+                    }
+                };
+                reader.readAsArrayBuffer(bomFile);
+            });
+        }
+
+        function s2ab(s) {
+            const buf = new ArrayBuffer(s.length);
+            const view = new Uint8Array(buf);
+            for (let i = 0; i < s.length; i++) view[i] = s.charCodeAt(i) & 0xFF;
+            return buf;
+        }
+    </script>
+</body>
+</html>
